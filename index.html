@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>onigi - photo editor</title>
+<style>
+  body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; }
+  h1 { font-size: 1.1rem; font-weight: normal; margin-bottom: 4px; }
+  p.sub { font-size: 0.85rem; color: #666; margin-bottom: 20px; }
+  #upload-zone { border: 1px dashed #aaa; padding: 40px; text-align: center; margin-bottom: 20px; cursor: pointer; }
+  #editor { display: none; }
+  #editor.visible { display: block; }
+  canvas { max-width: 100%; display: block; margin-bottom: 20px; border: 1px solid #ddd; }
+  .row { margin-bottom: 10px; font-size: 0.85rem; }
+  .row label { display: inline-block; width: 140px; color: #444; }
+  input[type="range"] { width: 200px; vertical-align: middle; }
+  .val { display: inline-block; width: 30px; text-align: right; color: #666; font-size: 0.8rem; }
+  hr { border: none; border-top: 1px solid #eee; margin: 16px 0; }
+  .filters { margin-bottom: 16px; font-size: 0.85rem; }
+  .filters span { margin-right: 4px; color: #888; }
+  .filter-btn { font-size: 0.8rem; padding: 3px 10px; cursor: pointer; margin-right: 4px; }
+  .filter-btn.active { font-weight: bold; }
+  .actions { font-size: 0.85rem; }
+  .actions button { font-size: 0.82rem; padding: 4px 12px; cursor: pointer; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<h1>onigi / photo editor</h1>
+<p class="sub">work in progress — no uploads, runs in the browser</p>
+
+<div id="upload-zone" onclick="document.getElementById('file-input').click()">
+  <p style="color:#888;font-size:0.9rem;">upload image</p>
+  <input type="file" id="file-input" accept="image/*" style="display:none"/>
+</div>
+
+<div id="editor">
+  <canvas id="canvas"></canvas>
+
+  <div class="row"><label>brightness</label><input type="range" id="brightness" min="0" max="200" value="100"/><span class="val" id="val-brightness">100</span></div>
+  <div class="row"><label>contrast</label><input type="range" id="contrast" min="0" max="200" value="100"/><span class="val" id="val-contrast">100</span></div>
+  <div class="row"><label>saturation</label><input type="range" id="saturation" min="0" max="200" value="100"/><span class="val" id="val-saturation">100</span></div>
+  <div class="row"><label>blur</label><input type="range" id="blur" min="0" max="10" value="0"/><span class="val" id="val-blur">0</span></div>
+  <div class="row"><label>grayscale</label><input type="range" id="grayscale" min="0" max="100" value="0"/><span class="val" id="val-grayscale">0</span></div>
+  <div class="row"><label>sepia</label><input type="range" id="sepia" min="0" max="100" value="0"/><span class="val" id="val-sepia">0</span></div>
+
+  <hr/>
+
+  <div class="filters">
+    <span>filters:</span>
+    <button class="filter-btn active" data-filter="none">none</button>
+    <button class="filter-btn" data-filter="vintage">vintage</button>
+    <button class="filter-btn" data-filter="cool">cool</button>
+    <button class="filter-btn" data-filter="warm">warm</button>
+    <button class="filter-btn" data-filter="fade">fade</button>
+    <button class="filter-btn" data-filter="dramatic">dramatic</button>
+  </div>
+
+  <div class="actions">
+    <button onclick="resetAll()">reset</button>
+    <button onclick="changeImage()">change photo</button>
+    <button onclick="downloadImage()">download</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let originalImage = null;
+const sliders = ['brightness','contrast','saturation','blur','grayscale','sepia'];
+const presets = {
+  none:     {brightness:100,contrast:100,saturation:100,blur:0,grayscale:0,sepia:0},
+  vintage:  {brightness:110,contrast:85, saturation:75, blur:0,grayscale:0,sepia:40},
+  cool:     {brightness:100,contrast:110,saturation:120,blur:0,grayscale:0,sepia:0},
+  warm:     {brightness:110,contrast:105,saturation:130,blur:0,grayscale:0,sepia:20},
+  fade:     {brightness:130,contrast:80, saturation:70, blur:0,grayscale:10,sepia:10},
+  dramatic: {brightness:90, contrast:160,saturation:80, blur:0,grayscale:0,sepia:0}
+};
+
+function loadImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      originalImage = img;
+      canvas.width = img.width;
+      canvas.height = img.height;
+      document.getElementById('upload-zone').style.display = 'none';
+      document.getElementById('editor').classList.add('visible');
+      applyFilters();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function applyFilters() {
+  if (!originalImage) return;
+  const b  = document.getElementById('brightness').value;
+  const c  = document.getElementById('contrast').value;
+  const s  = document.getElementById('saturation').value;
+  const bl = document.getElementById('blur').value;
+  const g  = document.getElementById('grayscale').value;
+  const se = document.getElementById('sepia').value;
+  ctx.filter = `brightness(${b}%) contrast(${c}%) saturate(${s}%) blur(${bl}px) grayscale(${g}%) sepia(${se}%)`;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(originalImage, 0, 0);
+}
+
+sliders.forEach(id => {
+  const input = document.getElementById(id);
+  const label = document.getElementById('val-' + id);
+  input.addEventListener('input', () => {
+    label.textContent = input.value;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('[data-filter="none"]').classList.add('active');
+    applyFilters();
+  });
+});
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const values = presets[btn.dataset.filter];
+    if (!values) return;
+    sliders.forEach(id => {
+      document.getElementById(id).value = values[id];
+      document.getElementById('val-' + id).textContent = values[id];
+    });
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+  });
+});
+
+function resetAll() {
+  const d = {brightness:100,contrast:100,saturation:100,blur:0,grayscale:0,sepia:0};
+  sliders.forEach(id => {
+    document.getElementById(id).value = d[id];
+    document.getElementById('val-' + id).textContent = d[id];
+  });
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-filter="none"]').classList.add('active');
+  applyFilters();
+}
+
+function downloadImage() {
+  const link = document.createElement('a');
+  link.download = 'onigi-edit.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+
+function changeImage() {
+  document.getElementById('editor').classList.remove('visible');
+  document.getElementById('upload-zone').style.display = 'block';
+  originalImage = null;
+  resetAll();
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadImage(e.target.files[0]);
+});
+
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); });
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]);
+});
+</script>
+</body>
+</html>
