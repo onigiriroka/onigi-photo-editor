@@ -10,7 +10,18 @@
   #upload-zone { border: 1px dashed #aaa; padding: 40px; text-align: center; margin-bottom: 20px; cursor: pointer; }
   #editor { display: none; }
   #editor.visible { display: block; }
-  canvas { max-width: 100%; display: block; margin-bottom: 20px; border: 1px solid #ddd; }
+  .canvas-wrap { position: relative; display: inline-block; max-width: 100%; margin-bottom: 20px; }
+  canvas { max-width: 100%; display: block; border: 1px solid #ddd; }
+  #crop-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    cursor: crosshair; display: none;
+  }
+  #crop-overlay.active { display: block; }
+  #crop-rect {
+    position: absolute; border: 1.5px dashed #fff;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
+    pointer-events: none; display: none;
+  }
   .row { margin-bottom: 10px; font-size: 0.85rem; }
   .row label { display: inline-block; width: 140px; color: #444; }
   input[type="range"] { width: 200px; vertical-align: middle; }
@@ -22,6 +33,9 @@
   .filter-btn.active { font-weight: bold; }
   .actions { font-size: 0.85rem; }
   .actions button { font-size: 0.82rem; padding: 4px 12px; cursor: pointer; margin-right: 6px; }
+  #crop-actions { display: none; font-size: 0.82rem; margin-top: 6px; }
+  #crop-actions button { padding: 4px 12px; cursor: pointer; margin-right: 6px; }
+  #btn-crop.cropping { font-weight: bold; }
 </style>
 </head>
 <body>
@@ -35,7 +49,16 @@
 </div>
 
 <div id="editor">
-  <canvas id="canvas"></canvas>
+  <div class="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div id="crop-overlay"></div>
+    <div id="crop-rect"></div>
+  </div>
+
+  <div id="crop-actions">
+    <button onclick="confirmCrop()">apply crop</button>
+    <button onclick="cancelCrop()">cancel</button>
+  </div>
 
   <div class="row"><label>brightness</label><input type="range" id="brightness" min="0" max="200" value="100"/><span class="val" id="val-brightness">100</span></div>
   <div class="row"><label>contrast</label><input type="range" id="contrast" min="0" max="200" value="100"/><span class="val" id="val-contrast">100</span></div>
@@ -59,6 +82,7 @@
   <div class="actions">
     <button onclick="resetAll()">reset</button>
     <button onclick="changeImage()">change photo</button>
+    <button id="btn-crop" onclick="toggleCrop()">crop</button>
     <button onclick="downloadImage()">download</button>
   </div>
 </div>
@@ -152,6 +176,7 @@ function downloadImage() {
 }
 
 function changeImage() {
+  cancelCrop();
   document.getElementById('editor').classList.remove('visible');
   document.getElementById('upload-zone').style.display = 'block';
   originalImage = null;
@@ -168,6 +193,95 @@ zone.addEventListener('drop', e => {
   e.preventDefault();
   if (e.dataTransfer.files[0]) loadImage(e.dataTransfer.files[0]);
 });
+
+const overlay  = document.getElementById('crop-overlay');
+const cropRect = document.getElementById('crop-rect');
+let cropping = false;
+let drag = { active: false, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 };
+
+function toggleCrop() {
+  if (cropping) { cancelCrop(); return; }
+  cropping = true;
+  overlay.classList.add('active');
+  document.getElementById('btn-crop').classList.add('cropping');
+  document.getElementById('btn-crop').textContent = 'cancel crop';
+}
+
+function cancelCrop() {
+  cropping = false;
+  drag = { active: false, startX: 0, startY: 0, x: 0, y: 0, w: 0, h: 0 };
+  overlay.classList.remove('active');
+  cropRect.style.display = 'none';
+  document.getElementById('crop-actions').style.display = 'none';
+  document.getElementById('btn-crop').classList.remove('cropping');
+  document.getElementById('btn-crop').textContent = 'crop';
+}
+
+overlay.addEventListener('mousedown', e => {
+  const r = overlay.getBoundingClientRect();
+  drag.startX = e.clientX - r.left;
+  drag.startY = e.clientY - r.top;
+  drag.active = true;
+  cropRect.style.display = 'block';
+  document.getElementById('crop-actions').style.display = 'none';
+  updateRect(drag.startX, drag.startY, 0, 0);
+});
+
+overlay.addEventListener('mousemove', e => {
+  if (!drag.active) return;
+  const r = overlay.getBoundingClientRect();
+  const cx = e.clientX - r.left;
+  const cy = e.clientY - r.top;
+  const x = Math.min(cx, drag.startX);
+  const y = Math.min(cy, drag.startY);
+  const w = Math.abs(cx - drag.startX);
+  const h = Math.abs(cy - drag.startY);
+  drag.x = x; drag.y = y; drag.w = w; drag.h = h;
+  updateRect(x, y, w, h);
+});
+
+overlay.addEventListener('mouseup', () => {
+  if (!drag.active) return;
+  drag.active = false;
+  if (drag.w > 5 && drag.h > 5) {
+    document.getElementById('crop-actions').style.display = 'block';
+  }
+});
+
+function updateRect(x, y, w, h) {
+  cropRect.style.left   = x + 'px';
+  cropRect.style.top    = y + 'px';
+  cropRect.style.width  = w + 'px';
+  cropRect.style.height = h + 'px';
+}
+
+function confirmCrop() {
+  const displayW = canvas.offsetWidth;
+  const displayH = canvas.offsetHeight;
+  const scaleX = canvas.width  / displayW;
+  const scaleY = canvas.height / displayH;
+
+  const sx = Math.round(drag.x * scaleX);
+  const sy = Math.round(drag.y * scaleY);
+  const sw = Math.round(drag.w * scaleX);
+  const sh = Math.round(drag.h * scaleY);
+
+  const tmp = document.createElement('canvas');
+  tmp.width  = sw;
+  tmp.height = sh;
+  const tctx = tmp.getContext('2d');
+  tctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+  const cropped = new Image();
+  cropped.onload = () => {
+    originalImage = cropped;
+    canvas.width  = sw;
+    canvas.height = sh;
+    applyFilters();
+    cancelCrop();
+  };
+  cropped.src = tmp.toDataURL();
+}
 </script>
 </body>
 </html>
